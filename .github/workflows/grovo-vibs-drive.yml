@@ -19,6 +19,9 @@ concurrency:
   group: grovo-vibs-drive-delivery
   cancel-in-progress: false
 
+env:
+  GDRIVE_FOLDER_ID: 1ceyZOBviJr_Kn0ZPdYzPAmr_-HcSX8Fg
+
 jobs:
   deliver:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
@@ -46,14 +49,13 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ steps.source.outputs.run_id }}
 
-      - name: Validate Drive secrets and saved package
+      - name: Validate Drive credential and saved package
         env:
           GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
-          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
           set -euo pipefail
           [ -n "${GDRIVE_SERVICE_ACCOUNT_JSON:-}" ] || { echo 'GDRIVE_SERVICE_ACCOUNT_JSON missing'; exit 1; }
-          [ -n "${GDRIVE_FOLDER_ID:-}" ] || { echo 'GDRIVE_FOLDER_ID missing'; exit 1; }
+          [ -n "${GDRIVE_FOLDER_ID:-}" ] || { echo 'Drive folder ID missing'; exit 1; }
           test -s grovo-vibs-package/output/grovo_vibs_stock_video.mp4
           test -s grovo-vibs-package/output/youtube_thumbnail.jpg
           test -s grovo-vibs-package/output/youtube_packaging.json
@@ -69,7 +71,6 @@ jobs:
       - name: Upload exact saved files to Google Drive
         env:
           GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
-          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
           SOURCE_RUN_ID: ${{ steps.source.outputs.run_id }}
         run: |
           python - <<'PY'
