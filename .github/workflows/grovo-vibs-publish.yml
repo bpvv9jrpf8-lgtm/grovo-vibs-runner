@@ -2,12 +2,12 @@ name: Grovo Vibs Publish Only
 
 on:
   workflow_run:
-    workflows: ['Grovo Vibs Generate Package']
+    workflows: ['Grovo Vibs Build Package']
     types: [completed]
   workflow_dispatch:
     inputs:
       source_run_id:
-        description: 'Successful Grovo Vibs Generate Package run ID to reuse'
+        description: 'Successful Grovo Vibs Build Package run ID to reuse'
         required: true
         type: string
 
@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Resolve source generation run
+      - name: Resolve source build run
         id: source
         shell: bash
         env:
@@ -37,7 +37,7 @@ jobs:
           [ -n "$RUN_ID" ] || { echo 'Source run id missing'; exit 1; }
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Download exact saved generation package
+      - name: Download exact saved publish package
         uses: actions/download-artifact@v4
         with:
           name: grovo-vibs-package-${{ steps.source.outputs.run_id }}
@@ -46,7 +46,7 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ steps.source.outputs.run_id }}
 
-      - name: Validate YouTube secrets and package
+      - name: Validate YouTube secrets and saved package
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
