@@ -1,4 +1,4 @@
-name: Grovo Vibs Generate Package
+name: Grovo Vibs Generate Song
 
 on:
   workflow_dispatch:
@@ -11,26 +11,25 @@ permissions:
   actions: write
 
 concurrency:
-  group: grovo-vibs-generate
+  group: grovo-vibs-generate-song
   cancel-in-progress: false
 
 jobs:
-  generate:
+  generate-song:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
     steps:
       - name: Checkout public runner
         uses: actions/checkout@v4
 
-      - name: Validate generation secrets
+      - name: Validate paid-generation secrets
         env:
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: |
           set -euo pipefail
-          for name in PRIVATE_REPO_TOKEN OPENAI_API_KEY ELEVENLABS_API_KEY PEXELS_API_KEY; do
+          for name in PRIVATE_REPO_TOKEN OPENAI_API_KEY ELEVENLABS_API_KEY; do
             [ -n "${!name:-}" ] || { echo "$name missing"; exit 1; }
           done
 
@@ -49,59 +48,37 @@ jobs:
           cache: 'pip'
           cache-dependency-path: private-code/requirements.txt
 
-      - name: Install dependencies and FFmpeg
-        run: |
-          pip install -r private-code/requirements.txt
-          sudo apt-get update -y
-          sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - name: Install Python dependencies
+        run: pip install -r private-code/requirements.txt
 
-      - name: Generate original full song once
+      - name: Generate original full song ONCE
         working-directory: private-code
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
         run: python full_song.py
 
-      - name: Build mood-matched long video once
-        working-directory: private-code
-        env:
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-        run: python stock_video.py
-
-      - name: Build YouTube packaging once
-        working-directory: private-code
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python youtube_packaging.py
-
-      - name: Validate publish-ready package
+      - name: Validate paid output immediately
         working-directory: private-code
         run: |
           set -euo pipefail
-          test -s output/grovo_vibs_stock_video.mp4
+          test -s output/grovo_vibs_full_song.mp3
           test -s output/full_song_plan.json
-          test -s output/youtube_packaging.json
-          test -s output/youtube_thumbnail.jpg
-          ffprobe -v error -show_entries format=duration,size -of default=nw=1 output/grovo_vibs_stock_video.mp4
+          test -s output/composition_plan.json
 
-      - name: Save immutable publish package
+      - name: Save immutable paid-generation artifact
         run: |
           set -euo pipefail
-          mkdir -p grovo-vibs-package/output
-          cp private-code/output/grovo_vibs_stock_video.mp4 grovo-vibs-package/output/
-          cp private-code/output/full_song_plan.json grovo-vibs-package/output/
-          cp private-code/output/youtube_packaging.json grovo-vibs-package/output/
-          cp private-code/output/youtube_thumbnail.jpg grovo-vibs-package/output/
-          if [ -d private-code/output/thumbnail_variants ]; then cp -R private-code/output/thumbnail_variants grovo-vibs-package/output/; fi
-          if [ -f private-code/output/stock_sources.json ]; then cp private-code/output/stock_sources.json grovo-vibs-package/output/; fi
-          cp private-code/youtube_upload.py grovo-vibs-package/
-          cp private-code/requirements.txt grovo-vibs-package/
-          printf '{"source_run_id":"%s","template":"GROVO_VIBS_SAVED_PACKAGE_V1"}\n' "${GITHUB_RUN_ID}" > grovo-vibs-package/package.json
+          mkdir -p grovo-song-package/output
+          cp private-code/output/grovo_vibs_full_song.mp3 grovo-song-package/output/
+          cp private-code/output/full_song_plan.json grovo-song-package/output/
+          cp private-code/output/composition_plan.json grovo-song-package/output/
+          printf '{"source_run_id":"%s","stage":"paid_song_complete","template":"GROVO_VIBS_PAID_SONG_V2"}\n' "${GITHUB_RUN_ID}" > grovo-song-package/package.json
 
-      - name: Upload saved package for publish-only retry
+      - name: Upload immutable paid song
         uses: actions/upload-artifact@v4
         with:
-          name: grovo-vibs-package-${{ github.run_id }}
-          path: grovo-vibs-package/
+          name: grovo-song-${{ github.run_id }}
+          path: grovo-song-package/
           if-no-files-found: error
           retention-days: 10
