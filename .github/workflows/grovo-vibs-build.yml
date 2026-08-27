@@ -1,0 +1,141 @@
+name: Grovo Vibs Build Package
+
+on:
+  workflow_run:
+    workflows: ['Grovo Vibs Generate Song']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Successful Grovo Vibs Generate Song run ID to reuse'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: grovo-vibs-build-package
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Resolve saved song run
+        id: source
+        shell: bash
+        env:
+          AUTO_RUN_ID: ${{ github.event.workflow_run.id }}
+          MANUAL_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = 'workflow_run' ]; then RUN_ID="$AUTO_RUN_ID"; else RUN_ID="$MANUAL_RUN_ID"; fi
+          [ -n "$RUN_ID" ] || { echo 'Source run id missing'; exit 1; }
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Download exact saved paid song
+        uses: actions/download-artifact@v4
+        with:
+          name: grovo-song-${{ steps.source.outputs.run_id }}
+          path: saved-song
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.source.outputs.run_id }}
+
+      - name: Checkout private source
+        uses: actions/checkout@v4
+        with:
+          repository: bpvv9jrpf8-lgtm/grovo-vibs-automation
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: private-code
+          persist-credentials: false
+
+      - name: Restore exact paid outputs
+        run: |
+          set -euo pipefail
+          mkdir -p private-code/output
+          cp saved-song/output/grovo_vibs_full_song.mp3 private-code/output/
+          cp saved-song/output/full_song_plan.json private-code/output/
+          cp saved-song/output/composition_plan.json private-code/output/
+
+      - name: Set up Python and free build tools
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies and FFmpeg
+        run: |
+          pip install -r private-code/requirements.txt
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+
+      - name: Build mood-matched long video from saved song
+        working-directory: private-code
+        env:
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: python stock_video.py
+
+      - name: Build deterministic YouTube package WITHOUT OpenAI
+        working-directory: private-code
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          from PIL import Image, ImageDraw, ImageFont, ImageEnhance
+          out=Path('output')
+          plan=json.loads((out/'full_song_plan.json').read_text(encoding='utf-8'))
+          song=plan.get('song',{})
+          title=(song.get('youtube_title') or song.get('title') or 'Grovo Vibs Original')[:100]
+          desc=(song.get('youtube_description') or f"{song.get('title','Original song')} — original music by Grovo Vibs.")[:5000]
+          tags=[x for x in [song.get('genre'),song.get('mood'),song.get('language'),'Grovo Vibs','Original Music'] if x]
+          package={'title':title,'description':desc,'tags':tags[:18],'pinned_comment':'What did this song make you feel?','deterministic_packaging':True}
+          (out/'youtube_packaging.json').write_text(json.dumps(package,ensure_ascii=False,indent=2),encoding='utf-8')
+          video=out/'grovo_vibs_stock_video.mp4'
+          frame=out/'youtube_thumbnail.jpg'
+          subprocess.run(['ffmpeg','-y','-ss','8','-i',str(video),'-frames:v','1','-vf','scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720',str(frame)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+          img=Image.open(frame).convert('RGB')
+          img=ImageEnhance.Contrast(img).enhance(1.18)
+          draw=ImageDraw.Draw(img)
+          font_path='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+          font=ImageFont.truetype(font_path,64)
+          small=ImageFont.truetype(font_path,28)
+          text=str(song.get('title') or 'ORIGINAL SONG').upper()[:28]
+          draw.rectangle((0,500,1280,720),fill=(0,0,0,155))
+          draw.text((55,535),text,font=font,fill='white',stroke_width=3,stroke_fill='black')
+          draw.text((58,640),'GROVO VIBS',font=small,fill='white')
+          img.save(frame,'JPEG',quality=90,optimize=True)
+          PY
+
+      - name: Validate publish-ready build
+        working-directory: private-code
+        run: |
+          set -euo pipefail
+          test -s output/grovo_vibs_stock_video.mp4
+          test -s output/full_song_plan.json
+          test -s output/youtube_packaging.json
+          test -s output/youtube_thumbnail.jpg
+
+      - name: Save immutable publish package
+        run: |
+          set -euo pipefail
+          mkdir -p grovo-vibs-package/output
+          cp private-code/output/grovo_vibs_stock_video.mp4 grovo-vibs-package/output/
+          cp private-code/output/full_song_plan.json grovo-vibs-package/output/
+          cp private-code/output/youtube_packaging.json grovo-vibs-package/output/
+          cp private-code/output/youtube_thumbnail.jpg grovo-vibs-package/output/
+          cp private-code/youtube_upload.py grovo-vibs-package/
+          cp private-code/requirements.txt grovo-vibs-package/
+          printf '{"source_song_run_id":"%s","stage":"publish_ready","template":"GROVO_VIBS_BUILD_V2"}\n' "${{ steps.source.outputs.run_id }}" > grovo-vibs-package/package.json
+
+      - name: Upload immutable publish package
+        uses: actions/upload-artifact@v4
+        with:
+          name: grovo-vibs-package-${{ github.run_id }}
+          path: grovo-vibs-package/
+          if-no-files-found: error
+          retention-days: 10
