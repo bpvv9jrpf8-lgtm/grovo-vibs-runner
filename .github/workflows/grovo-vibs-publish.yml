@@ -1,87 +1,14 @@
-name: Grovo Vibs Publish Only
+name: Grovo Vibs Legacy YouTube Publish Disabled
 
 on:
-  workflow_run:
-    workflows: ['Grovo Vibs Build Package']
-    types: [completed]
   workflow_dispatch:
-    inputs:
-      source_run_id:
-        description: 'Successful Grovo Vibs Build Package run ID to reuse'
-        required: true
-        type: string
 
 permissions:
   contents: read
-  actions: read
-
-concurrency:
-  group: grovo-vibs-publish
-  cancel-in-progress: false
 
 jobs:
-  publish:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+  disabled:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
     steps:
-      - name: Resolve source build run
-        id: source
-        shell: bash
-        env:
-          AUTO_RUN_ID: ${{ github.event.workflow_run.id }}
-          MANUAL_RUN_ID: ${{ inputs.source_run_id }}
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = 'workflow_run' ]; then RUN_ID="$AUTO_RUN_ID"; else RUN_ID="$MANUAL_RUN_ID"; fi
-          [ -n "$RUN_ID" ] || { echo 'Source run id missing'; exit 1; }
-          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Download exact saved publish package
-        uses: actions/download-artifact@v4
-        with:
-          name: grovo-vibs-package-${{ steps.source.outputs.run_id }}
-          path: grovo-vibs-package
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ steps.source.outputs.run_id }}
-
-      - name: Validate YouTube secrets and saved package
-        env:
-          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-        run: |
-          set -euo pipefail
-          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN; do
-            [ -n "${!name:-}" ] || { echo "$name missing"; exit 1; }
-          done
-          test -s grovo-vibs-package/output/grovo_vibs_stock_video.mp4
-          test -s grovo-vibs-package/output/full_song_plan.json
-          test -s grovo-vibs-package/output/youtube_packaging.json
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install upload dependencies
-        run: pip install -r grovo-vibs-package/requirements.txt
-
-      - name: Publish exact saved video to YouTube
-        working-directory: grovo-vibs-package
-        env:
-          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          YOUTUBE_PRIVACY: public
-        run: python youtube_upload.py
-
-      - name: Save upload receipt
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: grovo-vibs-publish-receipt-${{ github.run_id }}
-          path: grovo-vibs-package/output/youtube_upload_result.json
-          if-no-files-found: ignore
-          retention-days: 10
+      - name: Explain disabled publish
+        run: echo 'Automatic YouTube publish is disabled. Grovo Vibs now delivers the saved final video package to Google Drive.'
