@@ -1,4 +1,4 @@
-name: Grovo Vibs Deliver to Google Drive
+name: Grovo Vibs Ready Download
 
 on:
   workflow_run:
@@ -16,17 +16,14 @@ permissions:
   actions: read
 
 concurrency:
-  group: grovo-vibs-drive-delivery
+  group: grovo-vibs-ready-download
   cancel-in-progress: false
 
-env:
-  GDRIVE_FOLDER_ID: 1ceyZOBviJr_Kn0ZPdYzPAmr_-HcSX8Fg
-
 jobs:
-  deliver:
+  prepare-download:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - name: Resolve source build run
         id: source
@@ -40,7 +37,7 @@ jobs:
           [ -n "$RUN_ID" ] || { echo 'Source run id missing'; exit 1; }
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Download exact saved publish package
+      - name: Download exact saved build package
         uses: actions/download-artifact@v4
         with:
           name: grovo-vibs-package-${{ steps.source.outputs.run_id }}
@@ -49,71 +46,22 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ steps.source.outputs.run_id }}
 
-      - name: Validate Drive credential and saved package
-        env:
-          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+      - name: Validate ready files
         run: |
           set -euo pipefail
-          [ -n "${GDRIVE_SERVICE_ACCOUNT_JSON:-}" ] || { echo 'GDRIVE_SERVICE_ACCOUNT_JSON missing'; exit 1; }
-          [ -n "${GDRIVE_FOLDER_ID:-}" ] || { echo 'Drive folder ID missing'; exit 1; }
           test -s grovo-vibs-package/output/grovo_vibs_stock_video.mp4
           test -s grovo-vibs-package/output/youtube_thumbnail.jpg
           test -s grovo-vibs-package/output/youtube_packaging.json
+          mkdir -p ready-download
+          cp grovo-vibs-package/output/grovo_vibs_stock_video.mp4 ready-download/
+          cp grovo-vibs-package/output/youtube_thumbnail.jpg ready-download/
+          cp grovo-vibs-package/output/youtube_packaging.json ready-download/
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Google Drive upload dependencies
-        run: pip install google-api-python-client google-auth
-
-      - name: Upload exact saved files to Google Drive
-        env:
-          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
-          SOURCE_RUN_ID: ${{ steps.source.outputs.run_id }}
-        run: |
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          from google.oauth2 import service_account
-          from googleapiclient.discovery import build
-          from googleapiclient.http import MediaFileUpload
-
-          root = Path('grovo-vibs-package/output')
-          info = json.loads((root/'youtube_packaging.json').read_text(encoding='utf-8'))
-          title = str(info.get('title') or 'Grovo Vibs Original').strip()
-          safe = ''.join(c if c.isalnum() or c in ' -_.' else '_' for c in title).strip()[:80] or 'Grovo Vibs Original'
-
-          sa = json.loads(os.environ['GDRIVE_SERVICE_ACCOUNT_JSON'])
-          creds = service_account.Credentials.from_service_account_info(sa, scopes=['https://www.googleapis.com/auth/drive'])
-          drive = build('drive', 'v3', credentials=creds, cache_discovery=False)
-          folder = os.environ['GDRIVE_FOLDER_ID']
-
-          uploads = [
-              (root/'grovo_vibs_stock_video.mp4', f'{safe}.mp4', 'video/mp4'),
-              (root/'youtube_thumbnail.jpg', f'{safe} - thumbnail.jpg', 'image/jpeg'),
-              (root/'youtube_packaging.json', f'{safe} - youtube-info.json', 'application/json'),
-          ]
-          receipt = {'source_build_run_id': os.environ['SOURCE_RUN_ID'], 'files': []}
-          for path, name, mime in uploads:
-              media = MediaFileUpload(str(path), mimetype=mime, resumable=True)
-              created = drive.files().create(
-                  body={'name': name, 'parents': [folder]},
-                  media_body=media,
-                  fields='id,name,webViewLink'
-              ).execute()
-              receipt['files'].append(created)
-              print(f"Uploaded: {created.get('name')} -> {created.get('id')}")
-
-          (root/'google_drive_upload_result.json').write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding='utf-8')
-          PY
-
-      - name: Save Drive delivery receipt
-        if: always()
+      - name: Save ready video download
         uses: actions/upload-artifact@v4
         with:
-          name: grovo-vibs-drive-receipt-${{ github.run_id }}
-          path: grovo-vibs-package/output/google_drive_upload_result.json
-          if-no-files-found: ignore
-          retention-days: 10
+          name: GROVO-VIBS-READY-${{ steps.source.outputs.run_id }}
+          path: ready-download/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
